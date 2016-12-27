@@ -5,7 +5,7 @@ Rsyslog Queues
 
 As stated in **overview**, Rsyslog is founded on queues. Whenever Rsyslog receives a message, each input module store it in *main_queue*. Later is dequeued by *main_worker* which may apply filters, dispatched to appropiate *action_queue* and finally deleted from main queue.
 
-It is important to highligth the following:
+It is important to highlight the following:
  * Actions have implicit queues.
  * Queues do not necessarily "work enqueueing elements".
 
