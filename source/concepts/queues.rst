@@ -30,7 +30,103 @@ element directly (and immediately) from the producer to the consumer.
 Although you may think it doesn't make much sense, this allow us to use queues generically, even in places where
 queues are not used, simplyfying the code. For example: writing to file doesn't requieres a queue, but how actions are invoked won't need to be different than using RELP. Also consider actions always have implicit queues.
 
-To get a direct queue use "queueType=Direct".
+To get a direct queue use *queueType=Direct*.
+
+Disk queue
+==========
+
+Disk queues store messages being procesed on disk drives and do not buffer anything in memory,
+making it ultra-reliable but the slowest queue mode. **For regular use cases, this queue mode is not recommended**. It is useful if messages are so important that they must not be lost, even in extreme cases.
+
+When a disk queue is written, it is done in **chunks**. Each chunk receives
+its individual file. Files are named with a prefix (set via the
+*queueFilename* parameter) and followed by a 7-digit
+number (starting at one and incremented for each file). Chunks are 10mb
+by default, a different size can be set with *queueMaxFileSize*.
+Note that the size limit is not a sharp one: Rsyslog always writes one complete queue
+entry, even if it violates the size limit. So chunks are actually a
+little larger than the configured size. Each
+chunk also has a different size for the same reason. If you observe
+different chunk sizes, you can relax: this is not a problem.
+
+Writing in chunks is used so that processed data can quickly be deleted
+and is free for other uses - while at the same time keeping no
+artificial upper limit on disk space used. If a disk quota is set
+(instructions further below), be sure that the quota/chunk size allows
+at least two chunks to be written. **Rsyslog currently does not check that and will fail miserably if a single chunk is over the quota.**
+
+Creating new chunks costs performance but provides quicker ability to
+free disk space. The 10MB default is considered a good compromise
+between these two. However, it may make sense to adapt these settings to
+local policies. For example, if a disk queue is written on a dedicated
+200GB disk, it may make sense to use a 2GB (or even larger) chunk size.
+
+Please note, however, that the disk queue by default does not update its
+housekeeping structures every time it writes to disk for
+performance reasons. In the event of failure, data will still be lost
+(except when manually is mangled with the file structures). However,
+disk queues can be set to write bookkeeping information on checkpoints
+(every n records), so that this can be made ultra-reliable, too. If the
+checkpoint interval is set to one, no data can be lost, but the queue is
+exceptionally slow.
+
+**TODO** Each queue can be placed on a different disk for best performance and/or
+isolation. This is currently selected by specifying different
+*$WorkDirectory* config directives before the queue creation statement.
+
+To create a disk queue, use the *queueType=Disk*.
+Checkpoint intervals can be specified via
+*queueCheckpointInterval*, with 0 meaning no checkpoints.
+Note that disk-based queues can be made very reliable by issuing a
+(f)sync after each write operation. Starting with version 4.3.2, this
+can be requested via "*queueSyncQueueFiles="on"* with the
+default being off. Activating this option has a performance penalty, so
+it should not be turned on without reason.
+
+In-Memory queue
+===============
+
+In this mode, the enqueued data elements are held in memory.
+Consequently, in-memory queues are very fast, but of course,
+they do not survive any program or operating system abort (what usually
+is tolerable and unlikely). Be sure to use an UPS if you use in-memory
+mode and your log data is important to you. Note that even in-memory
+queues may hold data for an infinite amount of time when e.g. an output
+destination system is down and there is no reason to move the data out
+of memory (lying around in memory for an extended period of time is NOT
+a reason). Pure in-memory queues can't even store queue elements
+anywhere else than in core memory.
+
+There exist two different in-memory queue modes: **LinkedList and FixedArray**.
+
+* A FixedArray queue uses a fixed, pre-allocated array that holds pointers
+to queue elements. The majority of space is taken up by the actual user
+data elements, to which the pointers in the array point. The pointer
+array itself is comparatively small. However, it has a certain memory
+footprint even if the queue is empty. As there is no need to dynamically
+allocate any housekeeping structures, FixedArray offers the best run
+time performance (uses the least CPU cycle). FixedArray is best if there
+is a relatively low number of queue elements expected and performance is
+desired. It is the default mode for the main message queue (with a limit
+of 10,000 elements).
+
+* A LinkedList queue is quite the opposite. All housekeeping structures
+are dynamically allocated (in a linked list, as its name implies). This
+requires somewhat more runtime processing overhead, but ensures that
+memory is only allocated in cases where it is needed. LinkedList queues
+are especially well-suited for queues where only occasionally a
+than-high number of elements need to be queued. A use case may be
+occasional message burst. Memory permitting, it could be limited to e.g.
+200,000 elements which would take up only memory if in use. A FixedArray
+queue may have a too large static memory footprint in such cases.
+
+**In general, it is advised to use LinkedList mode if in doubt**. The
+processing overhead compared to FixedArray is low and may be outweigh by
+the reduction in memory use. Paging in most-often-unused pointer array
+pages can be much slower than dynamically allocating them.
+
+To create an in-memory queue, use *queueType=LinkedList* or  *queueType=FixedArray*.
+
 
 
 
@@ -50,121 +146,11 @@ http://www.rsyslog.com/doc/queues_analogy.html
 
 
 
-
-
-
-
-
-
-Disk Queues
-~~~~~~~~~~~
-
-Disk queues use disk drives for buffering. The important fact is that
-they always use the disk and do not buffer anything in memory. Thus, the
-queue is ultra-reliable, but by far the slowest mode. For regular use
-cases, this queue mode is not recommended. It is useful if log data is
-so important that it must not be lost, even in extreme cases.
-
-When a disk queue is written, it is done in chunks. Each chunk receives
-its individual file. Files are named with a prefix (set via the
-"*$<object>QueueFilename*\ " config directive) and followed by a 7-digit
-number (starting at one and incremented for each file). Chunks are 10mb
-by default, a different size can be set via
-the"*$<object>QueueMaxFileSize*\ " config directive. Note that the size
-limit is not a sharp one: rsyslog always writes one complete queue
-entry, even if it violates the size limit. So chunks are actually a
-little but (usually less than 1k) larger then the configured size. Each
-chunk also has a different size for the same reason. If you observe
-different chunk sizes, you can relax: this is not a problem.
-
-Writing in chunks is used so that processed data can quickly be deleted
-and is free for other uses - while at the same time keeping no
-artificial upper limit on disk space used. If a disk quota is set
-(instructions further below), be sure that the quota/chunk size allows
-at least two chunks to be written. Rsyslog currently does not check that
-and will fail miserably if a single chunk is over the quota.
-
-Creating new chunks costs performance but provides quicker ability to
-free disk space. The 10mb default is considered a good compromise
-between these two. However, it may make sense to adapt these settings to
-local policies. For example, if a disk queue is written on a dedicated
-200gb disk, it may make sense to use a 2gb (or even larger) chunk size.
-
-Please note, however, that the disk queue by default does not update its
-housekeeping structures every time it writes to disk. This is for
-performance reasons. In the event of failure, data will still be lost
-(except when manually is mangled with the file structures). However,
-disk queues can be set to write bookkeeping information on checkpoints
-(every n records), so that this can be made ultra-reliable, too. If the
-checkpoint interval is set to one, no data can be lost, but the queue is
-exceptionally slow.
-
-Each queue can be placed on a different disk for best performance and/or
-isolation. This is currently selected by specifying different
-*$WorkDirectory* config directives before the queue creation statement.
-
-To create a disk queue, use the "*$<object>QueueType Disk*\ " config
-directive. Checkpoint intervals can be specified via
-"*$<object>QueueCheckpointInterval*\ ", with 0 meaning no checkpoints.
-Note that disk-based queues can be made very reliable by issuing a
-(f)sync after each write operation. Starting with version 4.3.2, this
-can be requested via "*<object>QueueSyncQueueFiles on/off* with the
-default being off. Activating this option has a performance penalty, so
-it should not be turned on without reason.
-
-In-Memory Queues
-~~~~~~~~~~~~~~~~
-
-In-memory queue mode is what most people have on their mind when they
-think about computing queues. Here, the enqueued data elements are held
-in memory. Consequently, in-memory queues are very fast. But of course,
-they do not survive any program or operating system abort (what usually
-is tolerable and unlikely). Be sure to use an UPS if you use in-memory
-mode and your log data is important to you. Note that even in-memory
-queues may hold data for an infinite amount of time when e.g. an output
-destination system is down and there is no reason to move the data out
-of memory (lying around in memory for an extended period of time is NOT
-a reason). Pure in-memory queues can't even store queue elements
-anywhere else than in core memory.
-
-There exist two different in-memory queue modes: LinkedList and
-FixedArray. Both are quite similar from the user's point of view, but
-utilize different algorithms.
-
-A FixedArray queue uses a fixed, pre-allocated array that holds pointers
-to queue elements. The majority of space is taken up by the actual user
-data elements, to which the pointers in the array point. The pointer
-array itself is comparatively small. However, it has a certain memory
-footprint even if the queue is empty. As there is no need to dynamically
-allocate any housekeeping structures, FixedArray offers the best run
-time performance (uses the least CPU cycle). FixedArray is best if there
-is a relatively low number of queue elements expected and performance is
-desired. It is the default mode for the main message queue (with a limit
-of 10,000 elements).
-
-A LinkedList queue is quite the opposite. All housekeeping structures
-are dynamically allocated (in a linked list, as its name implies). This
-requires somewhat more runtime processing overhead, but ensures that
-memory is only allocated in cases where it is needed. LinkedList queues
-are especially well-suited for queues where only occasionally a
-than-high number of elements need to be queued. A use case may be
-occasional message burst. Memory permitting, it could be limited to e.g.
-200,000 elements which would take up only memory if in use. A FixedArray
-queue may have a too large static memory footprint in such cases.
-
-**In general, it is advised to use LinkedList mode if in doubt**. The
-processing overhead compared to FixedArray is low and may be outweigh by
-the reduction in memory use. Paging in most-often-unused pointer array
-pages can be much slower than dynamically allocating them.
-
-To create an in-memory queue, use the "*$<object>QueueType
-LinkedList*\ " or  "*$<object>QueueType FixedArray*\ " config directive.
-
-Disk-Assisted Memory Queues
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Disk-Assisted queue
+===================
 
 If a disk queue name is defined for in-memory queues (via
-*$<object>QueueFileName*), they automatically become "disk-assisted"
+*queueFileName="queue-name"*, they automatically become "disk-assisted"
 (DA). In that mode, data is written to disk (and read back) on an
 as-needed basis.
 
