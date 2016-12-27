@@ -1,101 +1,60 @@
-Understanding rsyslog Queues
-============================
+.. index:: ! queues
 
-Rsyslog uses queues whenever two activities need to be loosely coupled.
-With a queue, one part of the system "produces" something while another
-part "consumes" this something. The "something" is most often syslog
-messages, but queues may also be used for other purposes.
+Rsyslog Queues
+##############
 
-This document provides a good insight into technical details, operation
-modes and implications. In addition to it, an :doc:`rsyslog queue concepts
-overview <../whitepapers/queues_analogy>` document exists which tries to explain
-queues with the help of some analogies. This may probably be a better
-place to start reading about queues. I assume that once you have
-understood that document, the material here will be much easier to grasp
-and look much more natural.
+As stated in **overview**, Rsyslog is founded on queues. Whenever Rsyslog receives a message, each input module store it in *main_queue*. Later is dequeued by *main_worker* which may apply filters, dispatched to appropiate *action_queue* and finally deleted from main queue.
 
-The most prominent example is the main message queue. Whenever rsyslog
-receives a message (e.g. locally, via UDP, TCP or in whatever else way),
-it places these messages into the main message queue. Later, it is
-dequeued by the rule processor, which then evaluates which actions are
-to be carried out. In front of each action, there is also a queue, which
-potentially de-couples the filter processing from the actual action
-(e.g. writing to file, database or forwarding to another host).
+It is important to highligth the following:
+ * Actions have implicit queues.
+ * Queues do not necessarily "work enqueueing elements".
 
-Where are Queues Used?
-----------------------
+.. graphviz::
 
-Currently, queues are used for the main message queue and for the
-actions.
+    digraph {
+      { rank=same; "im\*" -> main_queue -> main_worker -> action_queue -> "om\*" }
+    }
 
-There is a single main message queue inside rsyslog. Each input module
-delivers messages to it. The main message queue worker filters messages
-based on rules specified in rsyslog.conf and dispatches them to the
-individual action queues. Once a message is in an action queue, it is
-deleted from the main message queue.
+Queue modes
+***********
 
-There are multiple action queues, one for each configured action. By
-default, these queues operate in direct (non-queueing) mode. Action
-queues are fully configurable and thus can be changed to whatever is
-best for the given use case.
+Rsyslog supports different queue modes, detailed below. Choosing the right model depending on your needs is **very** important, so careful thinking is advised. As explained in `queue_parameters <http://www.rsyslog.com/doc/master/rainerscript/queue_parameters.html>`_, mode is set by "queueType".
 
-Future versions of rsyslog will most probably utilize queues at other
-places, too.
+Direct queue
+============
 
-Wherever "*<object>*\ "  is used in the config file statements,
-substitute "*<object>*\ " with either "MainMsg" or "Action". The former
-will set main message queue parameters, the later parameters for the
-next action that will be created. Action queue parameters can not be
-modified once the action has been specified. For example, to tell the
-main message queue to save its content on shutdown, use
-*$MainMsgQueueSaveOnShutdown on*".
-
-If the same parameter is specified multiple times before a queue is
-created, the last one specified takes precedence. The main message queue
-is created after parsing the config file and all of its potential
-includes. An action queue is created each time an action selector is
-specified. Action queue parameters are reset to default after an action
-queue has been created (to provide a clean environment for the next
-action).
-
-Not all queues necessarily support the full set of queue configuration
-parameters, because not all are applicable. For example, in current
-output module design, actions do not support multi-threading.
-Consequently, the number of worker threads is fixed to one for action
-queues and can not be changed.
-
-Queue Modes
------------
-
-Rsyslog supports different queue modes, some with submodes. Each of them
-has specific advantages and disadvantages. Selecting the right queue
-mode is quite important when tuning rsyslogd. The queue mode (aka
-"type") is set via the "*$<object>QueueType*\ " config directive.
-
-Direct Queues
-~~~~~~~~~~~~~
-
-Direct queues are **non**-queuing queues. A queue in direct mode does
+Direct queues are **non-queuing queues**. A queue in direct mode does
 neither queue nor buffer any of the queue elements but rather passes the
 element directly (and immediately) from the producer to the consumer.
-This sounds strange, but there is a good reason for this queue type.
 
-Direct mode queues allow to use queues generically, even in places where
-queuing is not always desired. A good example is the queue in front of
-output actions. While it makes perfect sense to buffer forwarding
-actions or database writes, it makes only limited sense to build up a
-queue in front of simple local file writes. Yet, rsyslog still has a
-queue in front of every action. So for file writes, the queue mode can
-simply be set to "direct", in which case no queuing happens.
+Although you may think it doesn't make much sense, this allow us to use queues generically, even in places where
+queues are not used, simplyfying the code. For example: writing to file doesn't requieres a queue, but how actions are invoked won't need to be different than using RELP. Also consider actions always have implicit queues.
 
-Please note that a direct queue also is the only queue type that passes
-back the execution return code (success/failure) from the consumer to
-the producer. This, for example, is needed for the backup action logic.
-Consequently, backup actions require the to-be-checked action to use a
-"direct" mode queue.
+To get a direct queue use "queueType=Direct".
 
-To create a direct queue, use the "*$<object>QueueType Direct*\ " config
-directive.
+
+
+TODO >>
+
+
+Consider that this mode is the only one returning an success/failure code, needed for ?
+
+Rsyslog queues also enable multi thread processing, having one thread to handle each queue. 
+
+TODO? Future versions of rsyslog will most probably utilize queues at other
+places, too.
+
+http://www.rsyslog.com/doc/queues_analogy.html
+
+
+
+
+
+
+
+
+
+
 
 Disk Queues
 ~~~~~~~~~~~
