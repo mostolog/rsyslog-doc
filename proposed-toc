@@ -1,16 +1,17 @@
 This is a proposal for a future TOC. It is put into the repo in order
 to facilitate discussion of how it finally shall look. 
 
-* What is rsyslog?
-
-* Overview and installation
+* index/overview/What is rsyslog?
+* Hello world (basic example, and first contact)
+* Installation
+** Packages
+** Installing from sources
+*Basics
 ** Message flow in rsyslog
 ** Legacy configuration format and RainerScript
 ** Properties
 ** Templates
-** Installation
-*** Packages
-*** Installing from sources
+
 
 * Input modules
 [list of modules here]
